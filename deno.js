@@ -666,20 +666,34 @@ const API_SITES = {
     heimuer: {
       api: 'https://json.heimuer.xyz',
       name: '黑木耳',
-      detail: 'https://heimuer.tv'
+      detail: 'https://heimuer.tv',
+      // 添加正则表达式配置
+      regex: {
+        pattern: '\\$https?:\\/\\/[^"\'\\s]+?\\.m3u8',
+        prefix: '$',
+        transform: (link) => link.substring(1) // 移除开头的 $
+      }
     },
     ffzy: {
       api: 'http://ffzy5.tv',
       name: '非凡影视',
-      detail: 'http://ffzy5.tv'
+      detail: 'http://ffzy5.tv',
+      // 添加正则表达式配置
+      regex: {
+        pattern: '(?<=\\$)(https?:\\/\\/[^"\'\\s]+?\\/\\d{8}\\/\\d+_[a-f0-9]+\\/index\\.m3u8)',
+        prefix: '',
+        transform: (link) => link.split('(')[1]
+      }
     }
-  };
+};
 
 
 // 处理请求的函数
 async function handleRequest(request) {
   const url = new URL(request.url);
   const customApi = url.searchParams.get('customApi') || '';
+  const customRegex = url.searchParams.get('customRegex') || '';
+  const customPrefix = url.searchParams.get('customPrefix') || '';
 
   // API 路由处理
   if (url.pathname === '/api/search') {
@@ -736,14 +750,25 @@ async function handleRequest(request) {
       const response = await fetch(detailUrl);
       const html = await response.text();
 
-      // 更新正则表达式以匹配新的 URL 格式
+      // 使用配置的正则表达式抽取视频地址
       let matches = [];
-      if (source === 'ffzy') {
-        matches = html.match(/(?<=\$)(https?:\/\/[^"'\s]+?\/\d{8}\/\d+_[a-f0-9]+\/index\.m3u8)/g) || [];
-        matches = matches.map(link => link.split('(')[1]);
-      } else {
-        matches = html.match(/\$https?:\/\/[^"'\s]+?\.m3u8/g) || [];
-        matches = matches.map(link => link.substring(1)); // 移除开头的 $
+      if (customRegex) {
+        // 使用自定义正则表达式
+        const regex = new RegExp(customRegex, 'g');
+        matches = html.match(regex) || [];
+        // 处理自定义前缀
+        if (customPrefix) {
+          matches = matches.map(link => link.startsWith(customPrefix) ? link.substring(customPrefix.length) : link);
+        }
+      } else if (source in API_SITES && API_SITES[source].regex) {
+        // 使用预定义的站点正则表达式
+        const siteRegex = API_SITES[source].regex;
+        const regex = new RegExp(siteRegex.pattern, 'g');
+        matches = html.match(regex) || [];
+        // 使用站点配置的转换函数
+        if (typeof siteRegex.transform === 'function') {
+          matches = matches.map(siteRegex.transform);
+        }
       }
 
       return new Response(
